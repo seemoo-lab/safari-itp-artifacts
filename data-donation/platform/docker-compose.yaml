@@ -1,0 +1,61 @@
+services:
+
+  # https://hub.docker.com/_/traefik
+  traefik:
+    image: traefik:v3.6
+    container_name: traefik
+    restart: unless-stopped
+    command:
+      - "--api.dashboard=true"
+
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--providers.file.directory=/config/"
+
+      - "--entryPoints.web.address=:80"
+      - "--entrypoints.web.http.redirections.entrypoint.to=websecure"
+      - "--entrypoints.web.http.redirections.entrypoint.scheme=https"
+
+      - "--entryPoints.websecure.address=:443"
+      - "--entryPoints.websecure.http.tls=true"
+      - "--entrypoints.websecure.http.tls.certResolver=myresolver"
+      - "--entryPoints.websecure.http.tls.domains[0].main=censored.com"
+      - "--entryPoints.websecure.http.tls.domains[1].main=censored.com"
+      - "--entryPoints.websecure.forwardedHeaders.trustedIPs=172.16.0.0/12"
+      - "--entryPoints.websecure.http3"
+
+      - "--certificatesresolvers.myresolver.acme.email=anon@censored.com"
+      - "--certificatesresolvers.myresolver.acme.storage=/acme/acme-dns.json"
+      - "--certificatesresolvers.myresolver.acme.httpchallenge.entrypoint=web"
+    environment:
+      - TZ=Europe/Berlin
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - traefik-acme:/acme
+      - ./apps/traefik/config:/config
+      - /var/run/docker.sock:/var/run/docker.sock
+
+  api-server:
+    build: .
+    container_name: itp-data-donation
+    restart: always
+    environment:
+      - PORT=3000
+      - STORAGE_DIR_NAME=${STORAGE_DIR_NAME}
+      - MAX_FOLDER_SIZE_MB=${MAX_FOLDER_SIZE_MB}
+      - MAX_FILE_SIZE_MB=${MAX_FILE_SIZE_MB}
+      - ACCESS_KEY=${ACCESS_KEY}
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.static.rule=Host(`censored.com`) || Host(`censored.com`)"
+    volumes:
+      - ./donations:/app/donations
+    depends_on:
+      - traefik
+
+
+volumes:
+  traefik-acme:

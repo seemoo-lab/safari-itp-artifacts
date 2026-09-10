@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Thank You - Safari ITP Data Donation</title>
+    <link rel="stylesheet" href="dist/bootstrap/css/bootstrap.min.css">
+    <style>
+        html, body {
+            height: 100%;
+            margin: 0;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            display: flex;
+            flex-direction: column;
+        }
+        .success-card {
+            border: 1px solid #dee2e6;
+            border-radius: 8px;
+            background: #fff;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.03);
+            overflow: hidden;
+        }
+        .success-icon-wrapper {
+            background-color: #f8f9fa;
+            border-bottom: 1px solid #e9ecef;
+            padding: 40px 0;
+        }
+        .checkmark-circle {
+            width: 80px;
+            height: 80px;
+            border-radius: 50%;
+            background-color: #d1e7dd;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto;
+        }
+        .main-content {
+            flex: 1;
+        }
+    </style>
+</head>
+<body class="bg-light">
+
+    <div class="position-fixed top-0 end-0 p-3" style="z-index: 1050;">
+        <div class="btn-group btn-group-sm shadow-sm bg-white rounded">
+            <button class="btn btn-outline-secondary active" onclick="setLanguage('en')" id="btn-en">🇬🇧</button>
+            <button class="btn btn-outline-secondary" onclick="setLanguage('de')" id="btn-de">🇩🇪</button>
+        </div>
+    </div>
+
+    <div class="container mt-5" style="max-width: 700px;">
+        
+        <div class="success-card text-center">
+            <div class="success-icon-wrapper">
+                <div class="checkmark-circle">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" fill="#198754" class="bi bi-check-lg" viewBox="0 0 16 16">
+                        <path d="M12.736 3.97a.733.733 0 0 1 1.047 0c.286.289.29.756.01 1.05L7.88 12.01a.733.733 0 0 1-1.065.02L3.217 8.384a.757.757 0 0 1 0-1.06.733.733 0 0 1 1.047 0l3.052 3.093 5.4-6.425a.247.247 0 0 1 .02-.022Z"/>
+                    </svg>
+                </div>
+                <h2 class="mt-4 mb-0 fw-bold text-dark" data-i18n="donation_received">Donation Received!</h2>
+            </div>
+
+            <div class="p-5">
+                <p class="lead text-muted mb-4" data-i18n="thank_you_contribution">Thank you for your contribution.</p>
+                <p class="small text-muted mb-0" data-i18n="donation_id_label">Your Donation ID is:</p>
+                <p class="mb-0">
+                    <span id="donation-id" class="font-monospace text-dark bg-light px-1 rounded mb-4">Unknown</span>
+                </p>
+                <p class="small text-muted mb-4" data-i18n="donation_id_subtext">Please save this ID for your records. You may need it to reference your donation for deletion or objection requests.</p>
+
+                <hr class="my-4">
+
+                <p class="small text-muted mb-4" data-i18n="contact_study_questions">
+                    If you have questions about this study, 
+                    please contact me via Email: <a href="mailto:anon@anonymizied.com">anon@anonymizied.com</a>
+                </p>
+
+                <a class="btn btn-primary px-4" onclick="returnToHome()" data-i18n="return_to_home">Return to Home</a>
+            </div>
+        </div>
+    </div>
+
+    <footer class="text-center text-muted small py-4 mt-auto">
+        <hr class="my-4">
+        <div><a href="https://anonymizied.com" class="text-reset" target="_blank" data-i18n="imprint" class=>Imprint</a> | <a href="/privacy" class="text-reset " target="_blank" data-i18n="privacy_policy">Privacy Policy</a></div>
+    </footer>
+
+<script src="translations.js"></script>
+<script>
+    (function() {
+        const donationId = sessionStorage.getItem('donationId');
+        console.log(donationId);
+        if (donationId) {
+            document.getElementById('donation-id').textContent = donationId;
+            sessionStorage.removeItem('donationId');
+        }
+    })();
+
+    function returnToHome() {
+        const urlParams = new URLSearchParams(window.location.search);
+        const lang = urlParams.get('lang') || 'en';
+        const accessKey = urlParams.get('k');
+        const indexUrl = "/?lang=" + lang + (accessKey && accessKey !== 'null' ? "&k=" + encodeURIComponent(accessKey) : "");
+        window.location.href = indexUrl;
+    }
+
+    (function() {
+        const urlParams = new URLSearchParams(window.location.search);
+        const lang = urlParams.get('lang');
+        if (lang === 'de') {
+            setLanguage('de');
+        }
+    })();
+</script>
+</body>
+</html>

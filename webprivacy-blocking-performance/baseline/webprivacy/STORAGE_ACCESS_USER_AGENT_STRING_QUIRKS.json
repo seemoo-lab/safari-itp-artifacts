@@ -1,0 +1,12 @@
+{
+    "remoteList": "STORAGE_ACCESS_USER_AGENT_STRING_QUIRKS",
+    "remoteListVersion": "v1",
+    "remoteListPlatform": "ALL",
+    "responseType": "FULL_LIST",
+    "additions": [
+        "{\"live.com\":\"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36\"}"
+    ],
+    "newListState": "qrsAAAGOUoCMILQjQ+s=",
+    "checksum": "tCND69sBcTz8vtFzAxKG0P7wS3yovkVgPc3I7BcwDjI=",
+    "nextUpdateDuration": "11340"
+}

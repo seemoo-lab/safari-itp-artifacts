@@ -1,0 +1,15 @@
+{
+    "remoteList": "TRACKING_SUBNETS",
+    "remoteListVersion": "v1",
+    "remoteListPlatform": "ALL",
+    "responseType": "FULL_LIST",
+    "additions": [
+        "216.239.32.0/19;Google LLC;google.com",
+        "2620:100:a000::/44;Criteo Corp.;criteo.com",
+        "63.140.32.0/19;Adobe Inc.;2o7.net",
+        "74.119.116.0/22;Criteo Corp.;criteo.com"
+    ],
+    "newListState": "qrsAAAGGcETDAHxOo4s=",
+    "checksum": "fE6ji+w4MqWzy0O4tpbUNUXF0Bv+O6w57Uf6kdvysuM=",
+    "nextUpdateDuration": "10800"
+}

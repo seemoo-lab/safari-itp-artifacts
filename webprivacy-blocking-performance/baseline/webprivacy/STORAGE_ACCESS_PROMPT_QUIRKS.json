@@ -1,0 +1,12 @@
+{
+    "remoteList": "STORAGE_ACCESS_PROMPT_QUIRKS",
+    "remoteListVersion": "v1",
+    "remoteListPlatform": "ALL",
+    "responseType": "FULL_LIST",
+    "additions": [
+        "{ \"Microsoft\": { \"quirkDomains\": { \"microsoftonline.com\": [\"live.com\", \"microsoft.com\"], \"microsoft.com\": [\"live.com\",\"microsoftonline.com\"], \"live.com\": [\"microsoftonline.com\"] }, \"triggerPages\": [\"https://login.microsoftonline.com/common/oauth2/v2.0/authorize\"] } }"
+    ],
+    "newListState": "qrsAAAGOUoCMIHxzIfc=",
+    "checksum": "fHMh9wo8SuYUKYmoNRGUMt+qulgBCoHaJC4YPQg/+4s=",
+    "nextUpdateDuration": "10800"
+}

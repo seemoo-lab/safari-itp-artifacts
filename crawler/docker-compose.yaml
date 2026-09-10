@@ -1,0 +1,50 @@
+services:
+
+  database:
+    image: mongo:8.2
+    container_name: database
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_INITDB_ROOT_USERNAME}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_INITDB_ROOT_PASSWORD}
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    networks:
+      - crawler_network
+  
+  crawler:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: crawler
+    depends_on:
+      - database
+    environment:
+      MONGO_URI: mongodb://${MONGO_INITDB_ROOT_USERNAME}:${MONGO_INITDB_ROOT_PASSWORD}@database:27017/
+    shm_size: '4gb'
+    networks:
+      - crawler_network
+  
+  export:
+    build:
+      context: .
+      dockerfile: export/Dockerfile
+    container_name: export
+    profiles: ["export"]
+    depends_on:
+      - database
+    environment:
+      MONGO_URI: mongodb://${MONGO_INITDB_ROOT_USERNAME}:${MONGO_INITDB_ROOT_PASSWORD}@database:27017/
+    volumes:
+      - ./:/app/results
+    networks:
+      - crawler_network
+
+networks:
+  crawler_network:
+    driver: bridge
+
+volumes:
+  mongo_data:

@@ -1,0 +1,6 @@
+tldextract
+matplotlib
+pandas
+python-dotenv
+braveblock
+ijson

@@ -1,0 +1,9 @@
+pytest-playwright
+pandas
+motor
+aiofiles
+python-dotenv
+tldextract
+matplotlib
+seaborn
+dnspython

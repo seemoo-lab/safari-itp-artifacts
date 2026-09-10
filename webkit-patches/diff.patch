@@ -1,0 +1,1150 @@
+diff --git a/ReadMe.md b/ReadMe.md
+index 0c6ffc2260..d6db98ea53 100644
+--- a/ReadMe.md
++++ b/ReadMe.md
+@@ -2,28 +2,6 @@
+ 
+ WebKit is a cross-platform web browser engine. On iOS and macOS, it powers Safari, Mail, Apple Books, and many other applications. For more information about WebKit, see the [WebKit project website](https://webkit.org/).
+ 
+-## Trying the Latest
+-
+-On macOS, [download Safari Technology Preview](https://webkit.org/downloads/) to test the latest version of WebKit. On Linux, download [Epiphany Technology Preview](https://webkitgtk.org/epiphany-tech-preview). On Windows, you'll have to build it yourself.
+-
+-## Reporting Bugs
+-
+-1. [Search WebKit Bugzilla](https://bugs.webkit.org/query.cgi?format=specific&product=WebKit) to see if there is an existing report for the bug you've encountered.
+-2. [Create a Bugzilla account](https://bugs.webkit.org/createaccount.cgi) to report bugs (and comment on them) if you haven't done so already.
+-3. File a bug in accordance with [our guidelines](https://webkit.org/bug-report-guidelines/).
+-
+-Once your bug is filed, you will receive email when it is updated at each stage in the [bug life cycle](https://webkit.org/bug-life-cycle). After the bug is considered fixed, you may be asked to download the [latest nightly](https://webkit.org/nightly) and confirm that the fix works for you.
+-
+-## Getting the Code
+-
+-Run the following command to clone WebKit's Git repository:
+-
+-```
+-git clone https://github.com/WebKit/WebKit.git WebKit
+-```
+-
+-You can enable [git fsmonitor](https://git-scm.com/docs/git-config#Documentation/git-config.txt-corefsmonitor) to make many git commands faster (such as `git status`) with `git config core.fsmonitor true`
+-
+ ## Building WebKit
+ 
+ ### Building for Apple platforms
+@@ -77,48 +55,6 @@ choose File > Workspace Settings, then click the Advanced button, select
+ "Custom", "Relative to Workspace", and enter `WebKitBuild` for both Products
+ and Intermediates.
+ 
+-### Building the GTK Port
+-
+-For production builds:
+-
+-```
+-cmake -DPORT=GTK -DCMAKE_BUILD_TYPE=RelWithDebInfo -GNinja
+-ninja
+-sudo ninja install
+-```
+-
+-For development builds:
+-
+-```
+-Tools/gtk/install-dependencies
+-Tools/Scripts/update-webkitgtk-libs
+-Tools/Scripts/build-webkit --gtk --debug
+-```
+-
+-For more information on building WebKitGTK, see the [wiki page](https://trac.webkit.org/wiki/BuildingGtk).
+-
+-### Building the WPE Port
+-
+-For production builds:
+-
+-```
+-cmake -DPORT=WPE -DCMAKE_BUILD_TYPE=RelWithDebInfo -GNinja
+-ninja
+-sudo ninja install
+-```
+-
+-For development builds:
+-
+-```
+-Tools/wpe/install-dependencies
+-Tools/Scripts/update-webkitwpe-libs
+-Tools/Scripts/build-webkit --wpe --debug
+-```
+-
+-### Building Windows Port
+-
+-For building WebKit on Windows, see the [WebKit on Windows page](https://docs.webkit.org/Ports/WindowsPort.html).
+-
+ ## Running WebKit
+ 
+ ### With Safari and Other macOS Applications
+@@ -137,6 +73,28 @@ To run other applications with your local build of WebKit, run the following com
+ Tools/Scripts/run-webkit-app <application-path>
+ ```
+ 
++### Enable Log channels
++You can enable logging for specific log channels by running the following command before launching Safari or other applications:
++```bash
++for identifier in com.apple.WebKit.WebContent.Development com.apple.WebKit.WebContent org.webkit.MiniBrowser -g /Users/$USER/Library/Containers/com.apple.Safari/Data/Library/Preferences/com.apple.Safari.plist; do
++    for key in WebCoreLogging WebKitLogging WebKit2Logging; do
++        defaults write ${identifier} "${key}" "<ChannelName>"
++    done
++done
++```
++You can remove all channels by replacing `<ChannelName>` with an empty string `""`.
++
++Available channels:
++- ITPCustomLog: General custom logging for ITP related features
++- ITPResourceLoading: Resource loading related logging for ITP
++- ITPClassification: Classification related logging for ITP
++- ITPCookieLogs: Cookie related logging for ITPs
++
++You can view the logs in Console.app or by running the following command in Terminal:
++```bash
++log stream --predicate 'category == "<ChannelName1>" OR category == "<ChannelName2>"' --level debug
++```
++
+ ### iOS Simulator
+ 
+ Run the following command to launch iOS simulator with your local build of WebKit:
+@@ -156,17 +114,3 @@ Tools/Scripts/run-webkit-app --debug --iphone-simulator <application-path>
+ #### Using Xcode
+ 
+ Open `WebKit.xcworkspace`, select intended scheme such as MobileMiniBrowser and an iOS simulator as target, click run.
+-
+-### Linux Ports
+-
+-If you have a development build, you can use the `run-minibrowser` script, e.g.:
+-
+-```
+-run-minibrowser --debug --wpe
+-```
+-
+-Pass one of `--gtk`, `--jsc-only`, or `--wpe` to indicate the port to use.
+-
+-## Contribute
+-
+-Congratulations! You’re up and running. Now you can begin coding in WebKit and contribute your fixes and new features to the project. For details on submitting your code to the project, read [Contributing Code](https://webkit.org/contributing-code/).
+diff --git a/Source/WebCore/page/DOMWindow.cpp b/Source/WebCore/page/DOMWindow.cpp
+index 9d4f1f7197..d72377c697 100644
+--- a/Source/WebCore/page/DOMWindow.cpp
++++ b/Source/WebCore/page/DOMWindow.cpp
+@@ -62,6 +62,7 @@
+ #include "WindowProxy.h"
+ #include "dom/SandboxFlags.h"
+ #include "page/RemoteFrame.h"
++#include "Logging.h"
+ #include <wtf/NeverDestroyed.h>
+ #include <wtf/TypeCasts.h>
+ #include <wtf/TZoneMallocInlines.h>
+@@ -139,6 +140,8 @@ void DOMWindow::close()
+     if (localFrame && !localFrame->loader().shouldClose())
+         return;
+ 
++    RELEASE_LOG(ITPResourceLoading, "DOMWindow::close: Closing window for page=%p, calling updateCentralStatisticsStore", page.get());
++
+     ResourceLoadObserver::singleton().updateCentralStatisticsStore([] { });
+ 
+     page->setIsClosing();
+diff --git a/Source/WebCore/page/LocalFrame.cpp b/Source/WebCore/page/LocalFrame.cpp
+index c9e53aad7a..4b65ad1cfb 100644
+--- a/Source/WebCore/page/LocalFrame.cpp
++++ b/Source/WebCore/page/LocalFrame.cpp
+@@ -1573,7 +1573,7 @@ void LocalFrame::showResourceMonitoringError()
+         page->diagnosticLoggingClient().logDiagnosticMessageWithValueDictionary(DiagnosticLoggingKeys::iframeResourceMonitoringKey(), "IFrame ResourceMonitoring Unloaded"_s, valueDictionaryForResult(true), ShouldSample::No);
+     }
+ 
+-    FRAME_RELEASE_LOG(ResourceMonitoring, "Detected excessive network usage in frame at %" SENSITIVE_LOG_STRING " and main frame at %" SENSITIVE_LOG_STRING ": unloading", url.isValid() ? url.string().utf8().data() : "invalid", mainFrameURL.isValid() ? mainFrameURL.string().utf8().data() : "invalid");
++    FRAME_RELEASE_LOG(ResourceMonitoring, "Detected excessive network usage in frame at %s and main frame at %s: unloading", url.isValid() ? url.string().utf8().data() : "invalid", mainFrameURL.isValid() ? mainFrameURL.string().utf8().data() : "invalid");
+ 
+     document->addConsoleMessage(MessageSource::ContentBlocker, MessageLevel::Error, makeString("Frame was unloaded because its network usage exceeded the limit: "_s, ResourceMonitorChecker::singleton().networkUsageThreshold(), " bytes, url="_s, url.string()));
+ 
+@@ -1605,7 +1605,7 @@ void LocalFrame::reportResourceMonitoringWarning()
+         page->diagnosticLoggingClient().logDiagnosticMessageWithValueDictionary(DiagnosticLoggingKeys::iframeResourceMonitoringKey(), "IFrame ResourceMonitoring Throttled"_s, valueDictionaryForResult(false), ShouldSample::No);
+     }
+ 
+-    FRAME_RELEASE_LOG(ResourceMonitoring, "Detected excessive network usage in frame at %" SENSITIVE_LOG_STRING " and main frame at %" SENSITIVE_LOG_STRING ": not unloading due to global limits", url.isValid() ? url.string().utf8().data() : "invalid", mainFrameURL.isValid() ? mainFrameURL.string().utf8().data() : "invalid");
++    FRAME_RELEASE_LOG(ResourceMonitoring, "Detected excessive network usage in frame at %s and main frame at %s: not unloading due to global limits", url.isValid() ? url.string().utf8().data() : "invalid", mainFrameURL.isValid() ? mainFrameURL.string().utf8().data() : "invalid");
+ 
+     if (RefPtr document = this->document())
+         document->addConsoleMessage(MessageSource::ContentBlocker, MessageLevel::Warning, "Frame's network usage exceeded the limit."_s);
+diff --git a/Source/WebCore/platform/Logging.h b/Source/WebCore/platform/Logging.h
+index 16657980bc..43bfd1387d 100644
+--- a/Source/WebCore/platform/Logging.h
++++ b/Source/WebCore/platform/Logging.h
+@@ -199,6 +199,10 @@ namespace WebCore {
+     M(Worker) \
+     M(XR) \
+     M(WheelEventTestMonitor) \
++    M(ITPCustomLog) \
++    M(ITPClassification) \
++    M(ITPResourceLoading) \
++    M(ITPCookieLogs)
+ 
+ #undef DECLARE_LOG_CHANNEL
+ #define DECLARE_LOG_CHANNEL(name) \
+diff --git a/Source/WebCore/platform/network/AdvancedPrivacyProtections.h b/Source/WebCore/platform/network/AdvancedPrivacyProtections.h
+index 371cd48f6c..f10baedf9e 100644
+--- a/Source/WebCore/platform/network/AdvancedPrivacyProtections.h
++++ b/Source/WebCore/platform/network/AdvancedPrivacyProtections.h
+@@ -30,18 +30,18 @@ namespace WebCore {
+ // FIXME: WebSearchContent is only used for debugging, and is unrelated to these other privacy protections;
+ // we should move it out of this enum and make it a separate property on per-navigation policies instead.
+ enum class AdvancedPrivacyProtections : uint16_t {
+-    BaselineProtections = 1 << 0,
+-    HTTPSFirst = 1 << 1,
+-    HTTPSOnly = 1 << 2,
+-    HTTPSOnlyExplicitlyBypassedForDomain = 1 << 3,
+-    FailClosedForUnreachableHosts = 1 << 4,
+-    WebSearchContent = 1 << 5,
+-    FingerprintingProtections = 1 << 6,
+-    EnhancedNetworkPrivacy = 1 << 7,
+-    LinkDecorationFiltering = 1 << 8,
+-    ScriptTrackingPrivacy = 1 << 9,
+-    FailClosedForAllHosts = 1 << 10,
+-    StrictFailClosed = 1 << 11,
++    BaselineProtections = 1 << 0, // 1 = 0x001
++    HTTPSFirst = 1 << 1, // 2 = 0x002
++    HTTPSOnly = 1 << 2, // 4 = 0x004
++    HTTPSOnlyExplicitlyBypassedForDomain = 1 << 3, // 8 = 0x008
++    FailClosedForUnreachableHosts = 1 << 4, // 16 = 0x10
++    WebSearchContent = 1 << 5, // 32 = 0x020
++    FingerprintingProtections = 1 << 6, // 64 = 0x040
++    EnhancedNetworkPrivacy = 1 << 7, // 128 = 0x080
++    LinkDecorationFiltering = 1 << 8, // 256 = 0x100
++    ScriptTrackingPrivacy = 1 << 9, // 512 = 0x200
++    FailClosedForAllHosts = 1 << 10, // 1024 = 0x400
++    StrictFailClosed = 1 << 11, // 2048 = 0x800
+ };
+ 
+ }
+diff --git a/Source/WebCore/platform/network/NetworkStorageSession.cpp b/Source/WebCore/platform/network/NetworkStorageSession.cpp
+index 161dbc85df..f05e876a89 100644
+--- a/Source/WebCore/platform/network/NetworkStorageSession.cpp
++++ b/Source/WebCore/platform/network/NetworkStorageSession.cpp
+@@ -83,6 +83,10 @@ Vector<Cookie> NetworkStorageSession::domCookiesForHost(const URL&)
+ void NetworkStorageSession::setTrackingPreventionEnabled(bool enabled)
+ {
+     m_isTrackingPreventionEnabled = enabled;
++
++    RELEASE_LOG(ITPCustomLog, "NetworkStorageSession::setTrackingPreventionEnabled: enabled=%d",
++        m_isTrackingPreventionEnabled ? 1 : 0
++    );
+ }
+ 
+ bool NetworkStorageSession::trackingPreventionEnabled() const
+@@ -486,16 +490,33 @@ void NetworkStorageSession::resetManagedDomains()
+ 
+ std::optional<Seconds> NetworkStorageSession::clientSideCookieCap(const RegistrableDomain& firstParty, RequiresScriptTrackingPrivacy requiresScriptTrackingPrivacy, std::optional<PageIdentifier> pageID) const
+ {
+-    if (requiresScriptTrackingPrivacy == RequiresScriptTrackingPrivacy::Yes)
++    if (requiresScriptTrackingPrivacy == RequiresScriptTrackingPrivacy::Yes) {
++
++        RELEASE_LOG(ITPCookieLogs, "NetworkStorageSession::clientSideCookieCap: Applying script tracking privacy cookie age cap for first party %s",
++            firstParty.string().utf8().data()
++        );
++
+         return m_ageCapForClientSideCookiesForScriptTrackingPrivacy;
++    }
+ 
+ #if ENABLE(JS_COOKIE_CHECKING)
+     if (!pageID)
+         return std::nullopt;
+ 
+     auto domainIterator = m_navigatedToWithLinkDecorationByPrevalentResource.find(*pageID);
+-    if (domainIterator != m_navigatedToWithLinkDecorationByPrevalentResource.end() && domainIterator->value == firstParty)
++    if (domainIterator != m_navigatedToWithLinkDecorationByPrevalentResource.end() && domainIterator->value == firstParty) {
++
++        RELEASE_LOG(ITPCookieLogs, "NetworkStorageSession::clientSideCookieCap: Applying link decoration target page cookie age cap for first party %s",
++            firstParty.string().utf8().data()
++        );
++
+         return m_ageCapForClientSideCookiesForLinkDecorationTargetPage;
++    }
++
++    // not script tracking privacy and not a link decoration target page
++    // RELEASE_LOG(ITPCookieLogs, "NetworkStorageSession::clientSideCookieCap: No specific cookie age cap applied for first party %s", 
++    //     firstParty.string().utf8().data()
++    // );
+ 
+     return std::nullopt;
+ #else
+diff --git a/Source/WebCore/platform/network/cocoa/NetworkStorageSessionCocoa.mm b/Source/WebCore/platform/network/cocoa/NetworkStorageSessionCocoa.mm
+index c50b6c07f2..03a8178ad6 100644
+--- a/Source/WebCore/platform/network/cocoa/NetworkStorageSessionCocoa.mm
++++ b/Source/WebCore/platform/network/cocoa/NetworkStorageSessionCocoa.mm
+@@ -34,6 +34,7 @@
+ #import "HTTPCookieAcceptPolicyCocoa.h"
+ #import "ResourceRequest.h"
+ #import "SameSiteInfo.h"
++#include "Logging.h"
+ #import <algorithm>
+ #import <optional>
+ #import <pal/spi/cf/CFNetworkSPI.h>
+@@ -504,8 +505,20 @@ static RetainPtr<NSHTTPCookie> adjustScriptWrittenCookie(NSHTTPCookie *initialCo
+         return nil;
+ 
+     // Cap lifetime of persistent, client-side cookies.
+-    if (cappedLifetime)
++    if (cappedLifetime) {
++
++        RELEASE_LOG(ITPCookieLogs, "CNetworkStorageSession::adjustScriptWrittenCookie: Capping lifetime of persistent cookie '%s' to %f seconds", 
++            [cookie.get() name].UTF8String,
++            cappedLifetime->seconds()
++        );
++
+         return NetworkStorageSession::capExpiryOfPersistentCookie(cookie.get(), *cappedLifetime);
++    }
++
++    // nothing adjusted here
++    RELEASE_LOG(ITPCookieLogs, "NetworkStorageSession::adjustScriptWrittenCookie: No lifetime adjustment for cookie '%s'", 
++        [cookie.get() name].UTF8String
++    );
+ 
+     return cookie;
+ }
+@@ -548,6 +561,14 @@ void NetworkStorageSession::setCookiesFromDOM(const URL& firstParty, const SameS
+     if (!cookie)
+         return;
+ 
++    RELEASE_LOG(ITPCookieLogs, "NetworkStorageSession::setCookiesFromDOM(String): firstParty=%s url=%s partition=%s cap=%f cookie=%s",
++        firstParty.string().utf8().data(),
++        url.string().utf8().data(),
++        partitionKey.utf8().data(),
++        cookieCap ? cookieCap->seconds() : -1.0,
++        cookieString.utf8().data()
++    );
++
+     setHTTPCookiesForURL(cookieStorage().get(), @[cookie.get()], cookieURL.get(), firstParty.createNSURL().get(), nsStringNilIfEmpty(partitionKey).get(), sameSiteInfo, thirdPartyCookieBlockingDecision);
+ 
+     END_BLOCK_OBJC_EXCEPTIONS
+@@ -574,6 +595,15 @@ bool NetworkStorageSession::setCookieFromDOM(const URL& firstParty, const SameSi
+     RetainPtr<NSString> partition;
+ #endif
+ 
++    RELEASE_LOG(ITPCookieLogs, "NetworkStorageSession::setCookiesFromDOM(Cookie): firstParty=%s url=%s partition=%s cap=%f cookie=%s=%s",
++        firstParty.string().utf8().data(),
++        url.string().utf8().data(),
++        partition ? [partition UTF8String] : "<none>",
++        expiryCap ? expiryCap->seconds() : -1.0,
++        cookie.name.utf8().data(),
++        cookie.value.utf8().data()
++    );
++
+     setHTTPCookiesForURL(cookieStorage().get(), @[ nshttpCookie.get() ], url.createNSURL().get(), firstParty.createNSURL().get(), partition.get(), sameSiteInfo, thirdPartyCookieBlockingDecision);
+     return true;
+ 
+diff --git a/Source/WebKit/NetworkProcess/Classifier/ResourceLoadStatisticsStore.cpp b/Source/WebKit/NetworkProcess/Classifier/ResourceLoadStatisticsStore.cpp
+index 6070a569ce..460badc171 100644
+--- a/Source/WebKit/NetworkProcess/Classifier/ResourceLoadStatisticsStore.cpp
++++ b/Source/WebKit/NetworkProcess/Classifier/ResourceLoadStatisticsStore.cpp
+@@ -399,6 +399,9 @@ void ResourceLoadStatisticsStore::removeDataRecords(CompletionHandler<void()>&&
+     ASSERT(!RunLoop::isMain());
+ 
+     if (!shouldRemoveDataRecords()) {
++
++        RELEASE_LOG(ITPCustomLog, "ResourceLoadStatisticsStore::removeDataRecords: Skip removal as minimumTimeBetweenDataRecordsRemoval not passed yet (time between removals).");
++
+         completionHandler();
+         return;
+     }
+@@ -416,6 +419,10 @@ void ResourceLoadStatisticsStore::removeDataRecords(CompletionHandler<void()>&&
+ 
+     setDataRecordsBeingRemoved(true);
+ 
++    RELEASE_LOG(ITPCustomLog, "ResourceLoadStatisticsStore::removeDataRecords: Remove data records for %s",
++        domainsToString(domainsToDeleteOrRestrictWebsiteDataFor).utf8().data()
++    );
++
+     RunLoop::mainSingleton().dispatch([store = Ref { m_store.get() }, domainsToDeleteOrRestrictWebsiteDataFor = crossThreadCopy(WTF::move(domainsToDeleteOrRestrictWebsiteDataFor)), completionHandler = WTF::move(completionHandler), weakThis = WeakPtr { *this }, workQueue = m_workQueue] () mutable {
+         store->deleteAndRestrictWebsiteDataForRegistrableDomains(WebResourceLoadStatisticsStore::monitoredDataTypes(), WTF::move(domainsToDeleteOrRestrictWebsiteDataFor), [completionHandler = WTF::move(completionHandler), weakThis = WTF::move(weakThis), workQueue](HashSet<RegistrableDomain>&& domainsWithDeletedWebsiteData) mutable {
+             workQueue->dispatch([domainsWithDeletedWebsiteData = crossThreadCopy(WTF::move(domainsWithDeletedWebsiteData)), completionHandler = WTF::move(completionHandler), weakThis = WTF::move(weakThis)] () mutable {
+@@ -600,6 +607,11 @@ void ResourceLoadStatisticsStore::setCacheMaxAgeCap(Seconds seconds)
+     ASSERT(seconds >= 0_s);
+ 
+     m_parameters.cacheMaxAgeCapTime = seconds;
++
++    RELEASE_LOG(ITPCustomLog, "ResourceLoadStatisticsStore::setCacheMaxAgeCap: cacheMaxAgeCapTime=%f seconds",
++        seconds.value()
++    );
++
+     updateCacheMaxAgeCap();
+ }
+ 
+@@ -1364,8 +1376,13 @@ void ResourceLoadStatisticsStore::merge(WebCore::SQLiteStatement* current, const
+         setVeryPrevalentResource(other.registrableDomain);
+     if (other.dataRecordsRemoved > currentDataRecordsRemoved)
+         updateDataRecordsRemoved(other.registrableDomain, other.dataRecordsRemoved);
+-    if (other.gotLinkDecorationFromPrevalentResource && !currentIsScheduledForAllButCookieDataRemoval)
++    if (other.gotLinkDecorationFromPrevalentResource && !currentIsScheduledForAllButCookieDataRemoval) {
+         setIsScheduledForAllScriptWrittenStorageRemoval(other.registrableDomain, DataRemovalFrequency::Short);
++
++        RELEASE_LOG(ITPCustomLog, "ResourceLoadStatisticsStore::merge: Scheduling script-written storage removal for %s because it received link decoration from a prevalent resource.", 
++            other.registrableDomain.string().utf8().data()
++        );
++    }
+ }
+ 
+ void ResourceLoadStatisticsStore::mergeStatistic(const ResourceLoadStatistics& statistic)
+@@ -1550,6 +1567,24 @@ void ResourceLoadStatisticsStore::markAsPrevalentIfHasRedirectedToPrevalent()
+             prevalentDueToRedirect.insert(topFrameRedirectStatement->columnInt(0));
+     }
+ 
++    StringBuilder builder;
++    auto statement = m_database->prepareStatement("SELECT registrableDomain FROM ObservedDomains WHERE domainID = ?"_s);
++    bool first = true;
++    for (auto domainID : prevalentDueToRedirect) {
++        statement->bindInt(1, static_cast<int>(domainID));
++        if (statement->step() == SQLITE_ROW) {
++            if (!first)
++                builder.append(", "_s);
++                    
++            builder.append(statement->columnText(0));
++            first = false;
++        }
++        statement->reset();
++    }
++    RELEASE_LOG(ITPCustomLog, "ResourceLoadStatisticsStore::markAsPrevalentIfHasRedirectedToPrevalent: [%s]", 
++        builder.isEmpty() ? ""_s : builder.toString().utf8().data()
++    );
++
+     auto markPrevalentStatement = m_database->prepareStatementSlow(makeString("UPDATE ObservedDomains SET isPrevalent = 1 WHERE domainID IN ("_s, buildList(prevalentDueToRedirect), ')'));
+     if (!markPrevalentStatement || markPrevalentStatement->step() != SQLITE_DONE)
+         ITP_RELEASE_LOG_DATABASE_ERROR("markAsPrevalentIfHasRedirectedToPrevalent: failed to step statement");
+@@ -1645,6 +1680,21 @@ void ResourceLoadStatisticsStore::reclassifyResources()
+             continue;
+ 
+         auto newPrevalence = m_resourceLoadStatisticsClassifier.calculateResourcePrevalence(resourceStatistic.subresourceUnderTopFrameDomainsCount, resourceStatistic.subresourceUniqueRedirectsToCount, resourceStatistic.subframeUnderTopFrameDomainsCount, resourceStatistic.topFrameUniqueRedirectsToCount, resourceStatistic.prevalence);
++
++        StringBuilder builder;
++        builder.append(
++            "Domain: "_s, resourceStatistic.registrableDomain.string(),
++            ", SubResUnderTop: "_s, resourceStatistic.subresourceUnderTopFrameDomainsCount,
++            ", SubResUniqueRedir: "_s, resourceStatistic.subresourceUniqueRedirectsToCount,
++            ", SubframeUnderTop: "_s, resourceStatistic.subframeUnderTopFrameDomainsCount,
++            ", TopUniqueRedir: "_s, resourceStatistic.topFrameUniqueRedirectsToCount,
++            ", Prevalence: "_s, resourceStatistic.prevalence == ResourceLoadPrevalence::VeryHigh ? "VeryHigh"_s : resourceStatistic.prevalence == ResourceLoadPrevalence::High ? "High"_s : "Low"_s
++        );
++        RELEASE_LOG(ITPClassification, "ResourceLoadStatisticsStore::reclassifyResources: resourceStatistic=[%s], newPrevalence=%s",
++            builder.toString().utf8().data(),
++            newPrevalence == ResourceLoadPrevalence::VeryHigh ? "VeryHigh" : newPrevalence == ResourceLoadPrevalence::High ? "High" : "Low"
++        );
++
+         if (newPrevalence != resourceStatistic.prevalence)
+             setPrevalentResource(resourceStatistic.registrableDomain, newPrevalence);
+     }
+@@ -1982,6 +2032,11 @@ void ResourceLoadStatisticsStore::logFrameNavigation(const RegistrableDomain& ta
+         if (!targetResult.second)
+             return;
+ 
++        RELEASE_LOG(ITPResourceLoading, "ResourceLoadStatisticsStore::logFrameNavigation: [Subframe] Target=%s loaded under TopFrame=%s",
++            targetDomain.string().utf8().data(),
++            topFrameDomain.string().utf8().data()
++        );
++
+         updateLastSeen(targetDomain, ResourceLoadStatistics::reduceTimeResolution(nowTime(m_timeAdvanceForTesting)));
+         insertDomainRelationshipList(subframeUnderTopFrameDomainsQuery, HashSet<RegistrableDomain>({ topFrameDomain }), *targetResult.second);
+         statisticsWereUpdated = true;
+@@ -2000,6 +2055,11 @@ void ResourceLoadStatisticsStore::logFrameNavigation(const RegistrableDomain& ta
+                 if (isRedirect) {
+                     insertDomainRelationshipList(topFrameUniqueRedirectsToSinceSameSiteStrictEnforcementQuery, HashSet<RegistrableDomain>({ targetDomain }), *redirectingDomainResult.second);
+ 
++                    RELEASE_LOG(ITPResourceLoading, "ResourceLoadStatisticsStore::logFrameNavigation: [MainFrameRedirectSinceSameSiteEnforcement] Source=%s redirected to Target=%s",
++                        sourceDomain.string().utf8().data(),
++                        targetDomain.string().utf8().data()
++                    );
++
+                     if (debugLoggingEnabled()) [[unlikely]] {
+                         ITP_DEBUG_MODE_RELEASE_LOG("Did set %" PUBLIC_LOG_STRING " as making a top frame redirect to %" PUBLIC_LOG_STRING ".", sourceDomain.string().utf8().data(), targetDomain.string().utf8().data());
+                         debugBroadcastConsoleMessage(MessageSource::ITPDebug, MessageLevel::Info, makeString("Did set '"_s, sourceDomain.string(), "' as making a top frame redirect to '"_s, targetDomain.string(), "'."_s));
+@@ -2007,6 +2067,12 @@ void ResourceLoadStatisticsStore::logFrameNavigation(const RegistrableDomain& ta
+                 }
+                 insertDomainRelationshipList(topFrameUniqueRedirectsFromQuery, HashSet<RegistrableDomain>({ sourceDomain }), *targetResult.second);
+                 statisticsWereUpdated = true;
++
++                RELEASE_LOG(ITPResourceLoading, "ResourceLoadStatisticsStore::logFrameNavigation: [MainFrameRedirect] Source=%s redirected to Target=%s",
++                    sourceDomain.string().utf8().data(),
++                    targetDomain.string().utf8().data()
++                );
++
+             }
+         } else if (isRedirect) {
+             auto redirectingDomainResult = ensureResourceStatisticsForRegistrableDomain(sourceDomain, "logFrameNavigation"_s);
+@@ -2017,6 +2083,12 @@ void ResourceLoadStatisticsStore::logFrameNavigation(const RegistrableDomain& ta
+             insertDomainRelationshipList(subresourceUniqueRedirectsToQuery, HashSet<RegistrableDomain>({ targetDomain }), *redirectingDomainResult.second);
+             insertDomainRelationshipList(subresourceUniqueRedirectsFromQuery, HashSet<RegistrableDomain>({ sourceDomain }), *targetResult.second);
+             statisticsWereUpdated = true;
++
++            RELEASE_LOG(ITPResourceLoading, "ResourceLoadStatisticsStore::logFrameNavigation: [SubresourceRedirect] Source=%s redirected to Target=%s",
++                sourceDomain.string().utf8().data(),
++                targetDomain.string().utf8().data()
++            );
++
+         }
+     }
+ 
+@@ -2045,8 +2117,14 @@ void ResourceLoadStatisticsStore::logCrossSiteLoadWithLinkDecoration(const Navig
+     if (currentDataRemovalFrequency == newDataRemovalFrequency)
+         return;
+ 
+-    if (isPrevalentResource(fromDomain))
++    if (isPrevalentResource(fromDomain)) {
+         setIsScheduledForAllScriptWrittenStorageRemoval(toDomain, newDataRemovalFrequency);
++
++        RELEASE_LOG(ITPResourceLoading, "ResourceLoadStatisticsStore::logCrossSiteLoadWithLinkDecoration: Scheduled DELETE script-written storage (keeping cookies) for %s with dataRemovalFrequency=%s", toDomain.string().utf8().data(),
++            dataRemovalFrequencyToString(newDataRemovalFrequency).utf8().data()
++        );
++
++    }
+ }
+ 
+ void ResourceLoadStatisticsStore::clearTopFrameUniqueRedirectsToSinceSameSiteStrictEnforcement(const RegistrableDomain& domain, CompletionHandler<void()>&& completionHandler)
+@@ -2190,6 +2268,12 @@ void ResourceLoadStatisticsStore::setPrevalentResource(const RegistrableDomain&
+         }
+     }
+ 
++    RELEASE_LOG(ITPClassification, "ResourceLoadStatisticsStore::setPrevalentResource: Set domain=%s (ID=%u) to Prevalent. Level=%s",
++        domain.string().utf8().data(),
++        registrableDomainID ? *registrableDomainID : 0,
++        newPrevalence == ResourceLoadPrevalence::VeryHigh ? "VeryHigh" : newPrevalence == ResourceLoadPrevalence::High ? "High" : "Low"
++    );
++
+     StdSet<unsigned> nonPrevalentRedirectionSources;
+     recursivelyFindNonPrevalentDomainsThatRedirectedToThisDomain(*registrableDomainID, nonPrevalentRedirectionSources, 0);
+     setDomainsAsPrevalent(WTF::move(nonPrevalentRedirectionSources));
+@@ -2721,6 +2805,13 @@ void ResourceLoadStatisticsStore::updateCookieBlocking(CompletionHandler<void()>
+     auto domainsWithUserInteractionAsFirstParty = this->domainsWithUserInteractionAsFirstParty();
+     auto domainsWithStorageAccess = this->domainsWithStorageAccess();
+ 
++    RELEASE_LOG(ITPCustomLog, "ResourceLoadStatisticsStore::updateCookieBlocking: Domains to block and delete cookies for: %u, Domains to block but keep cookies for: %u, Domains with user interaction as first party: %u, Domains with storage access: %u",
++        static_cast<unsigned>(domainsToBlockAndDeleteCookiesFor.size()),
++        static_cast<unsigned>(domainsToBlockButKeepCookiesFor.size()),
++        static_cast<unsigned>(domainsWithUserInteractionAsFirstParty.size()),
++        static_cast<unsigned>(domainsWithStorageAccess.size())
++    );
++
+     if (domainsToBlockAndDeleteCookiesFor.isEmpty() && domainsToBlockButKeepCookiesFor.isEmpty() && domainsWithUserInteractionAsFirstParty.isEmpty() && domainsWithStorageAccess.isEmpty()) {
+         completionHandler();
+         return;
+@@ -2832,6 +2923,13 @@ bool ResourceLoadStatisticsStore::shouldRemoveAllButCookiesFor(const DomainData&
+         window = OperatingDatesWindow::ForReproTesting;
+     }
+ 
++    RELEASE_LOG(ITPCustomLog, "ResourceLoadStatisticsStore::shouldRemoveAllButCookiesFor: Domain %s with data removal frequency %s gets operating window %s -> Decision: %s",
++        resourceStatistic.registrableDomain.string().utf8().data(),
++        dataRemovalFrequencyToString(resourceStatistic.dataRemovalFrequency).utf8().data(),
++        resourceStatistic.dataRemovalFrequency == DataRemovalFrequency::Short ? "Short" : "Long",
++        (isRemovalEnabled && !isResourceGrandfathered && !hasHadUnexpiredRecentUserInteraction(resourceStatistic, window)) ? "true" : "false"
++    );
++
+     return isRemovalEnabled && !isResourceGrandfathered && !hasHadUnexpiredRecentUserInteraction(resourceStatistic, window);
+ }
+ 
+@@ -2890,14 +2988,28 @@ RegistrableDomainsToDeleteOrRestrictWebsiteDataFor ResourceLoadStatisticsStore::
+         if (shouldRemoveAllWebsiteDataFor(statistic, shouldCheckForGrandfathering)) {
+             toDeleteOrRestrictFor.domainsToDeleteAllCookiesFor.append(statistic.registrableDomain);
+             toDeleteOrRestrictFor.domainsToDeleteAllScriptWrittenStorageFor.append(statistic.registrableDomain);
++
++            // RELEASE_LOG(ITPCustomLog, "ResourceLoadStatisticsStore::registrableDomainsToDeleteOrRestrictWebsiteDataFor: Scheduled DELETE ALL (cookies + storage) for %s.",
++            //     statistic.registrableDomain.string().utf8().data()
++            // );
++
+         } else {
+             if (shouldRemoveAllButCookiesFor(statistic, shouldCheckForGrandfathering)) {
+                 toDeleteOrRestrictFor.domainsToDeleteAllScriptWrittenStorageFor.append(statistic.registrableDomain);
+                 setIsScheduledForAllScriptWrittenStorageRemoval(statistic.registrableDomain, DataRemovalFrequency::Never);
++
++                // RELEASE_LOG(ITPCustomLog, "ResourceLoadStatisticsStore::registrableDomainsToDeleteOrRestrictWebsiteDataFor: Scheduled DELETE script-written storage (keeping cookies) for %s.",
++                //     statistic.registrableDomain.string().utf8().data()
++                // );
++
+             }
+             if (shouldEnforceSameSiteStrictFor(statistic, shouldCheckForGrandfathering)) {
+                 toDeleteOrRestrictFor.domainsToEnforceSameSiteStrictFor.append(statistic.registrableDomain);
+ 
++                // RELEASE_LOG(ITPCustomLog, "ResourceLoadStatisticsStore::registrableDomainsToDeleteOrRestrictWebsiteDataFor: Scheduled SameSite=Strict enforcement for %s.",
++                //     statistic.registrableDomain.string().utf8().data()
++                // );
++
+                 if (debugLoggingEnabled()) [[unlikely]] {
+                     ITP_DEBUG_MODE_RELEASE_LOG("Scheduled %" PUBLIC_LOG_STRING " to have its cookies set to SameSite=strict.", statistic.registrableDomain.string().utf8().data());
+                     debugBroadcastConsoleMessage(MessageSource::ITPDebug, MessageLevel::Info, makeString("Scheduled '"_s, statistic.registrableDomain.string(), "' to have its cookies set to SameSite=strict'."_s));
+@@ -2909,9 +3021,16 @@ RegistrableDomainsToDeleteOrRestrictWebsiteDataFor ResourceLoadStatisticsStore::
+     }
+ 
+     // Give the user enough time to interact with websites until we remove non-cookie website data.
+-    if (!parameters().isRunningTest && now - oldestUserInteraction < parameters().minimumTimeBetweenDataRecordsRemoval)
++    if (!parameters().isRunningTest && now - oldestUserInteraction < parameters().minimumTimeBetweenDataRecordsRemoval) {
+         toDeleteOrRestrictFor.domainsToDeleteAllScriptWrittenStorageFor.clear();
+ 
++        RELEASE_LOG(ITPCustomLog, "ResourceLoadStatisticsStore::registrableDomainsToDeleteOrRestrictWebsiteDataFor: Postponing non-cookie data removal until user interaction is older than %f. Oldest interaction is at %f.",
++            parameters().minimumTimeBetweenDataRecordsRemoval.seconds(),
++            oldestUserInteraction.secondsSinceEpoch().value()
++        );
++
++    }
++
+     clearGrandfathering(WTF::move(domainIDsToClearGrandfathering));
+ 
+     return toDeleteOrRestrictFor;
+@@ -2937,6 +3056,12 @@ void ResourceLoadStatisticsStore::pruneStatisticsIfNeeded()
+     size_t countLeftToPrune = count - parameters().pruneEntriesDownTo;
+     ASSERT(countLeftToPrune);
+ 
++    RELEASE_LOG(ITPCustomLog, "ResourceLoadStatisticsStore::pruneStatisticsIfNeeded: Observed domain count %u is greater than max statistics entries %zu. Pruning down to %zu.",
++        count,
++        parameters().maxStatisticsEntries,
++        parameters().pruneEntriesDownTo
++    );
++
+     auto recordsToPrune = m_database->prepareStatement("SELECT domainID FROM ObservedDomains ORDER BY hadUserInteraction, isPrevalent, lastSeen LIMIT ?"_s);
+     if (!recordsToPrune || recordsToPrune->bindInt(1, countLeftToPrune) != SQLITE_OK) {
+         ITP_RELEASE_LOG_DATABASE_ERROR("pruneStatisticsIfNeeded: failed to bind parameter");
+@@ -2947,6 +3072,21 @@ void ResourceLoadStatisticsStore::pruneStatisticsIfNeeded()
+     while (recordsToPrune->step() == SQLITE_ROW)
+         entriesToPrune.append(recordsToPrune->columnInt(0));
+ 
++
++    auto listToLog = buildList(entriesToPrune);
++    auto logsStatement = m_database->prepareStatementSlow(makeString("SELECT registrableDomain FROM ObservedDomains WHERE domainID IN ("_s, listToLog, ')'));
++            
++    StringBuilder domainsBuilder;
++    bool first = true;
++    while (logsStatement->step() == SQLITE_ROW) {
++        if (!first)
++            domainsBuilder.append(", "_s);
++        domainsBuilder.append(logsStatement->columnText(0));
++        first = false;
++    }
++    RELEASE_LOG(ITPCustomLog, "ResourceLoadStatisticsStore::pruneStatisticsIfNeeded: Will prune domains: [%s]", domainsBuilder.toString().utf8().data());
++
++    
+     auto listToPrune = buildList(entriesToPrune);
+ 
+     auto pruneCommand = m_database->prepareStatementSlow(makeString("DELETE from ObservedDomains WHERE domainID IN ("_s, listToPrune, ')'));
+diff --git a/Source/WebKit/NetworkProcess/Classifier/ResourceLoadStatisticsStore.h b/Source/WebKit/NetworkProcess/Classifier/ResourceLoadStatisticsStore.h
+index fc57374ede..c1d49cb6a8 100644
+--- a/Source/WebKit/NetworkProcess/Classifier/ResourceLoadStatisticsStore.h
++++ b/Source/WebKit/NetworkProcess/Classifier/ResourceLoadStatisticsStore.h
+@@ -28,6 +28,7 @@
+ #include "DatabaseUtilities.h"
+ #include "ResourceLoadStatisticsClassifier.h"
+ #include "WebResourceLoadStatisticsStore.h"
++#include "Logging.h"
+ #include <JavaScriptCore/ConsoleTypes.h>
+ #include <WebCore/FrameIdentifier.h>
+ #include <pal/SessionID.h>
+@@ -224,7 +225,7 @@ private:
+         size_t pruneEntriesDownTo { 800 };
+         size_t maxStatisticsEntries { 1000 };
+         std::optional<Seconds> timeToLiveUserInteraction;
+-        Seconds minimumTimeBetweenDataRecordsRemoval { 1_h };
++        Seconds minimumTimeBetweenDataRecordsRemoval { 120_s }; // origin value: 1_h, reduced for testing purposes
+         Seconds grandfatheringTime { 24_h * 7 };
+         Seconds cacheMaxAgeCapTime { 24_h * 7 };
+         Seconds clientSideCookiesAgeCapTime { 24_h * 7 };
+diff --git a/Source/WebKit/NetworkProcess/NetworkConnectionToWebProcess.cpp b/Source/WebKit/NetworkProcess/NetworkConnectionToWebProcess.cpp
+index 4311c50ec0..2d79739688 100644
+--- a/Source/WebKit/NetworkProcess/NetworkConnectionToWebProcess.cpp
++++ b/Source/WebKit/NetworkProcess/NetworkConnectionToWebProcess.cpp
+@@ -1875,7 +1875,7 @@ void NetworkConnectionToWebProcess::updateSharedPreferencesForWebProcess(SharedP
+ #if ENABLE(CONTENT_EXTENSIONS)
+ void NetworkConnectionToWebProcess::shouldOffloadIFrameForHost(const String& host, CompletionHandler<void(bool)>&& completionHandler)
+ {
+-    CONNECTION_RELEASE_LOG(ResourceMonitoring, "shouldOffloadIFrameForHost: (host=%" SENSITIVE_LOG_STRING ")", host.utf8().data());
++    CONNECTION_RELEASE_LOG(ResourceMonitoring, "shouldOffloadIFrameForHost: (host=%s)", host.utf8().data());
+     if (CheckedPtr session = networkSession())
+         session->protectedResourceMonitorThrottler()->tryAccess(host, ContinuousApproximateTime::now(), WTF::move(completionHandler));
+     else
+diff --git a/Source/WebKit/NetworkProcess/NetworkProcess.cpp b/Source/WebKit/NetworkProcess/NetworkProcess.cpp
+index 23dddede6c..f406f63ed5 100644
+--- a/Source/WebKit/NetworkProcess/NetworkProcess.cpp
++++ b/Source/WebKit/NetworkProcess/NetworkProcess.cpp
+@@ -2082,9 +2082,18 @@ void NetworkProcess::deleteAndRestrictWebsiteDataForRegistrableDomains(PAL::Sess
+             hostnamesWithCookiesToDelete = filterForRegistrableDomains(domains.domainsToDeleteAllCookiesFor, hostNamesWithCookies);
+             networkStorageSession->deleteCookiesForHostnames(hostnamesWithCookiesToDelete, WebCore::IncludeHttpOnlyCookies::Yes, ScriptWrittenCookiesOnly::No, [callbackAggregator] { });
+ 
++            RELEASE_LOG(ITPCustomLog, "NetworkProcess::deleteAndRestrictWebsiteDataForRegistrableDomains: domainsToDeleteAllCookiesFor=%s",
++                hostnamesWithCookiesToDelete.isEmpty() ? "None" : makeString(interleave(hostnamesWithCookiesToDelete, ", "_s)).utf8().data()
++            );
++
+ #if ENABLE(JS_COOKIE_CHECKING)
+             hostnamesWithScriptWrittenCookiesToDelete = filterForRegistrableDomains(domains.domainsToDeleteAllScriptWrittenStorageFor, hostNamesWithCookies);
+             networkStorageSession->deleteCookiesForHostnames(hostnamesWithScriptWrittenCookiesToDelete, WebCore::IncludeHttpOnlyCookies::No, ScriptWrittenCookiesOnly::Yes, [callbackAggregator] { });
++
++            RELEASE_LOG(ITPCustomLog, "NetworkProcess::deleteAndRestrictWebsiteDataForRegistrableDomains: domainsToDeleteAllScriptWrittenStorageFor=%s",
++                hostnamesWithScriptWrittenCookiesToDelete.isEmpty() ? "None" : makeString(interleave(hostnamesWithScriptWrittenCookiesToDelete, ", "_s)).utf8().data()
++            );
++
+ #endif
+             for (const auto& host : hostnamesWithCookiesToDelete)
+                 callbackAggregator->m_domains.add(RegistrableDomain::uncheckedCreateFromHost(host));
+@@ -2092,6 +2101,10 @@ void NetworkProcess::deleteAndRestrictWebsiteDataForRegistrableDomains(PAL::Sess
+             hostnamesWithCookiesToDeleteAllButHttpOnly = filterForRegistrableDomains(domains.domainsToDeleteAllButHttpOnlyCookiesFor, hostNamesWithCookies);
+             networkStorageSession->deleteCookiesForHostnames(hostnamesWithCookiesToDeleteAllButHttpOnly, WebCore::IncludeHttpOnlyCookies::No, ScriptWrittenCookiesOnly::No, [callbackAggregator] { });
+ 
++            RELEASE_LOG(ITPCustomLog, "NetworkProcess::deleteAndRestrictWebsiteDataForRegistrableDomains: hostnamesWithCookiesToDeleteAllButHttpOnly=%s",
++                hostnamesWithCookiesToDeleteAllButHttpOnly.isEmpty() ? "None" : makeString(interleave(hostnamesWithCookiesToDeleteAllButHttpOnly, ", "_s)).utf8().data()
++            );
++
+             for (const auto& host : hostnamesWithCookiesToDeleteAllButHttpOnly)
+                 callbackAggregator->m_domains.add(RegistrableDomain::uncheckedCreateFromHost(host));
+             RELEASE_LOG(Storage, "NetworkProcess::deleteAndRestrictWebsiteDataForRegistrableDomains deleted cookies for session %" PRIu64 " - %zu domainsToDeleteAllCookiesFor, %zu domainsToDeleteAllButHttpOnlyCookiesFor, %zu domainsToDeleteAllScriptWrittenStorageFor", sessionID.toUInt64(), hostnamesWithCookiesToDelete.size(), hostnamesWithScriptWrittenCookiesToDelete.size(), hostnamesWithCookiesToDeleteAllButHttpOnly.size());
+@@ -2108,6 +2121,11 @@ void NetworkProcess::deleteAndRestrictWebsiteDataForRegistrableDomains(PAL::Sess
+             callbackAggregator->m_domains.add(RegistrableDomain::uncheckedCreateFromHost(host));
+ 
+         deleteHSTSCacheForHostNames(sessionID, hostnamesWithHSTSToDelete);
++
++        RELEASE_LOG(ITPCustomLog, "NetworkProcess::deleteAndRestrictWebsiteDataForRegistrableDomains: delete HSTS cache=%s",
++            hostnamesWithHSTSToDelete.isEmpty() ? "None" : makeString(interleave(hostnamesWithHSTSToDelete, ", "_s)).utf8().data()
++        );
++
+     }
+ #endif
+ 
+@@ -2117,6 +2135,9 @@ void NetworkProcess::deleteAndRestrictWebsiteDataForRegistrableDomains(PAL::Sess
+             return domain.string();
+         });
+         session->deleteAlternativeServicesForHostNames(registrableDomainsToDelete);
++
++        // TODO(heiko): what is that?
++
+     }
+ #endif
+ 
+diff --git a/Source/WebKit/NetworkProcess/NetworkSession.cpp b/Source/WebKit/NetworkProcess/NetworkSession.cpp
+index e63da38e6e..4bfedd8c16 100644
+--- a/Source/WebKit/NetworkProcess/NetworkSession.cpp
++++ b/Source/WebKit/NetworkProcess/NetworkSession.cpp
+@@ -341,8 +341,14 @@ IsKnownCrossSiteTracker NetworkSession::isResourceFromKnownCrossSiteTracker(cons
+ void NetworkSession::deleteAndRestrictWebsiteDataForRegistrableDomains(OptionSet<WebsiteDataType> dataTypes, RegistrableDomainsToDeleteOrRestrictWebsiteDataFor&& domains, CompletionHandler<void(HashSet<RegistrableDomain>&&)>&& completionHandler)
+ {
+     if (CheckedPtr storageSession = networkStorageSession()) {
+-        for (auto& domain : domains.domainsToEnforceSameSiteStrictFor)
++        for (auto& domain : domains.domainsToEnforceSameSiteStrictFor) {
++
++            RELEASE_LOG(ITPCustomLog, "NetworkSession::deleteAndRestrictWebsiteDataForRegistrableDomains: Applying SameSite=Strict enforcement for %s.",
++                domain.string().utf8().data()
++            );
++
+             storageSession->setAllCookiesToSameSiteStrict(domain, [] { });
++        }
+     }
+     domains.domainsToEnforceSameSiteStrictFor.clear();
+ 
+diff --git a/Source/WebKit/NetworkProcess/cocoa/NetworkDataTaskCocoa.mm b/Source/WebKit/NetworkProcess/cocoa/NetworkDataTaskCocoa.mm
+index 675e85f323..08e465b188 100644
+--- a/Source/WebKit/NetworkProcess/cocoa/NetworkDataTaskCocoa.mm
++++ b/Source/WebKit/NetworkProcess/cocoa/NetworkDataTaskCocoa.mm
+@@ -84,6 +84,12 @@ inline static bool shouldBlockTrackersForThirdPartyCloaking(NSURLRequest *reques
+ 
+ void enableAdvancedPrivacyProtections(NSMutableURLRequest *request, OptionSet<WebCore::AdvancedPrivacyProtections> policy)
+ {
++
++    RELEASE_LOG(ITPCustomLog, "NetworkDataTaskCocoa::enableAdvancedPrivacyProtections: policy=0x%{public}llx, url=%s", 
++        (unsigned long long)policy.toRaw(),
++        [request.URL.absoluteString UTF8String]
++    );
++
+ #if HAVE(SYSTEM_SUPPORT_FOR_ADVANCED_PRIVACY_PROTECTIONS)
+     if (policy.contains(WebCore::AdvancedPrivacyProtections::EnhancedNetworkPrivacy))
+         request._useEnhancedPrivacyMode = YES;
+diff --git a/Source/WebKit/Platform/Logging.h b/Source/WebKit/Platform/Logging.h
+index 47051e0498..32b2f7420e 100644
+--- a/Source/WebKit/Platform/Logging.h
++++ b/Source/WebKit/Platform/Logging.h
+@@ -186,6 +186,10 @@ extern "C" {
+     M(WheelEvents) \
+     M(Worker) \
+     M(XR) \
++    M(ITPCustomLog) \
++    M(ITPClassification) \
++    M(ITPResourceLoading) \
++    M(ITPCookieLogs)
+ 
+ WEBKIT2_LOG_CHANNELS(DECLARE_LOG_CHANNEL)
+ 
+diff --git a/Source/WebKit/Platform/classifier/ResourceLoadStatisticsClassifier.cpp b/Source/WebKit/Platform/classifier/ResourceLoadStatisticsClassifier.cpp
+index dd38cf5a3c..1ce92242d4 100644
+--- a/Source/WebKit/Platform/classifier/ResourceLoadStatisticsClassifier.cpp
++++ b/Source/WebKit/Platform/classifier/ResourceLoadStatisticsClassifier.cpp
+@@ -48,6 +48,11 @@ ResourceLoadPrevalence ResourceLoadStatisticsClassifier::calculateResourcePreval
+     auto subframeUnderTopFrameDomainsCount = resourceStatistic.subframeUnderTopFrameDomains.size();
+     auto topFrameUniqueRedirectsToCount = resourceStatistic.topFrameUniqueRedirectsTo.size();
+ 
++    RELEASE_LOG(ITPClassification, "ResourceLoadStatisticsClassifier::calculateResourcePrevalence: resourceStatistic[%s], currentPrevalence=%s",
++        resourceStatistic.registrableDomain.string().utf8().data(),
++        currentPrevalence == ResourceLoadPrevalence::VeryHigh ? "VeryHigh" : currentPrevalence == ResourceLoadPrevalence::High ? "High" : "Low"
++    );
++
+     return calculateResourcePrevalence(subresourceUnderTopFrameDomainsCount, subresourceUniqueRedirectsToCount, subframeUnderTopFrameDomainsCount, topFrameUniqueRedirectsToCount, currentPrevalence);
+ }
+ 
+@@ -76,6 +81,14 @@ ResourceLoadPrevalence ResourceLoadStatisticsClassifier::calculateResourcePreval
+ 
+ bool ResourceLoadStatisticsClassifier::classifyWithVectorThreshold(unsigned a, unsigned b, unsigned c)
+ {
++    RELEASE_LOG(ITPClassification,
++        "ResourceLoadStatisticsClassifier::classifyWithVectorThreshold: Inputs=[%u, %u, %u] -> Length=%f (Threshold=%f). Result=%s",
++        a, b, c,
++        vectorLength(a, b, c),
++        static_cast<double>(featureVectorLengthThresholdHigh),
++        vectorLength(a, b, c) > featureVectorLengthThresholdHigh ? "Prevalent" : "Not Prevalent"
++    );
++
+     LOG(ResourceLoadStatistics, "ResourceLoadStatisticsClassifier::classifyWithVectorThreshold(): Classified with threshold.");
+     return vectorLength(a, b, c) > featureVectorLengthThresholdHigh;
+ }
+diff --git a/Source/WebKit/Platform/classifier/cocoa/ResourceLoadStatisticsClassifierCocoa.cpp b/Source/WebKit/Platform/classifier/cocoa/ResourceLoadStatisticsClassifierCocoa.cpp
+index 55521c7dc4..6c0d81465e 100644
+--- a/Source/WebKit/Platform/classifier/cocoa/ResourceLoadStatisticsClassifierCocoa.cpp
++++ b/Source/WebKit/Platform/classifier/cocoa/ResourceLoadStatisticsClassifierCocoa.cpp
+@@ -38,8 +38,18 @@ namespace WebKit {
+ 
+ bool ResourceLoadStatisticsClassifierCocoa::classify(unsigned subresourceUnderTopFrameDomainsCount, unsigned subresourceUniqueRedirectsToCount, unsigned subframeUnderTopFrameOriginsCount)
+ {
+-    if (!canUseCorePrediction())
++    if (!canUseCorePrediction()) {
++
++        RELEASE_LOG(ITPClassification,
++           "ResourceLoadStatisticsClassifierCocoa::classify: [Fallback] Inputs=[%u, %u, %u] -> Result=%s",
++           subresourceUnderTopFrameDomainsCount,
++           subresourceUniqueRedirectsToCount,
++           subframeUnderTopFrameOriginsCount,
++           classifyWithVectorThreshold(subresourceUnderTopFrameDomainsCount, subresourceUniqueRedirectsToCount, subframeUnderTopFrameOriginsCount) ? "Prevalent" : "NotPrevalent"
++        );
++
+         return classifyWithVectorThreshold(subresourceUnderTopFrameDomainsCount, subresourceUniqueRedirectsToCount, subframeUnderTopFrameOriginsCount);
++    }
+ 
+     Vector<svm_node> features;
+ 
+@@ -56,6 +66,17 @@ bool ResourceLoadStatisticsClassifierCocoa::classify(unsigned subresourceUnderTo
+     double score;
+     int classification = svm_predict_values(singletonPredictionModel(), features.span().data(), &score);
+     LOG(ResourceLoadStatistics, "ResourceLoadStatisticsClassifierCocoa::classify(): Classified with CorePrediction.");
++
++    RELEASE_LOG(ITPClassification,
++       "ResourceLoadStatisticsClassifierCocoa::classify: [SVM] Inputs=[%u, %u, %u] -> Score=%f, ClassID=%d. Result=%s",
++       subresourceUnderTopFrameDomainsCount,
++       subresourceUniqueRedirectsToCount,
++       subframeUnderTopFrameOriginsCount,
++       score,
++       classification,
++       classification < 0 ? "Prevalent" : "NotPrevalent"
++    );
++
+     return classification < 0;
+ }
+ 
+@@ -79,10 +100,13 @@ bool ResourceLoadStatisticsClassifierCocoa::canUseCorePrediction()
+     if (m_haveLoadedModel)
+         return true;
+ 
+-    if (!m_useCorePrediction)
++    if (!m_useCorePrediction) {
++        RELEASE_LOG(ITPClassification, "ResourceLoadStatisticsClassifierCocoa::canUseCorePrediction: Error m_useCorePrediction is false.");
+         return false;
++    }
+ 
+     if (svm_load_model) {
++        RELEASE_LOG(ITPClassification, "ResourceLoadStatisticsClassifierCocoa::canUseCorePrediction: Error svm_load_model is not linked.");
+         m_useCorePrediction = false;
+         return false;
+     }
+diff --git a/Source/WebKit/Platform/cocoa/WebPrivacyHelpers.mm b/Source/WebKit/Platform/cocoa/WebPrivacyHelpers.mm
+index 3fc688cb07..c20d84a364 100644
+--- a/Source/WebKit/Platform/cocoa/WebPrivacyHelpers.mm
++++ b/Source/WebKit/Platform/cocoa/WebPrivacyHelpers.mm
+@@ -743,11 +743,28 @@ bool isKnownTrackerAddressOrDomain(StringView host)
+     TrackerDomainLookupInfo::populateIfNeeded();
+ 
+     if (auto address = URL::hostIsIPAddress(host) ? WebCore::IPAddress::fromString(host.toStringWithoutCopying()) : std::nullopt) {
+-        if (TrackerAddressLookupInfo::find(*address))
++        if (TrackerAddressLookupInfo::find(*address)) {
++
++            RELEASE_LOG(ITPCustomLog, "WebPrivacyHelpers::isKnownTrackerAddressOrDomain: Host '%s' identified as TRACKER IP.", 
++                host.toString().utf8().data()
++            );
++
+             return true;
++        }
+     }
+ 
+     auto domain = WebCore::RegistrableDomain { URL { makeString("http://"_s, host) } };
++
++    auto trackerInfo = TrackerDomainLookupInfo::find(domain.string());
++    auto owner = trackerInfo.owner();
++    if (!owner.isNull()) { // is tracker
++        RELEASE_LOG(ITPCustomLog, "WebPrivacyHelpers::isKnownTrackerAddressOrDomain: Host '%s' (Domain: %s) is a TRACKER. Owner: [%s]",
++            host.toString().utf8().data(),
++            domain.string().utf8().data(),
++            owner.data()
++        );
++    }
++
+     return TrackerDomainLookupInfo::find(domain.string()).owner().length();
+ }
+ 
+diff --git a/Source/WebKit/UIProcess/API/Cocoa/WKWebpagePreferences.mm b/Source/WebKit/UIProcess/API/Cocoa/WKWebpagePreferences.mm
+index 066ccf1751..b16ee92694 100644
+--- a/Source/WebKit/UIProcess/API/Cocoa/WKWebpagePreferences.mm
++++ b/Source/WebKit/UIProcess/API/Cocoa/WKWebpagePreferences.mm
+@@ -652,6 +652,11 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
+ 
+ - (void)_setNetworkConnectionIntegrityEnabled:(BOOL)enabled
+ {
++
++    RELEASE_LOG(ITPCustomLog, "WKWebpagePreferences_setNetworkConnectionIntegrityEnabled: %{public}d", 
++        enabled
++    );
++
+     auto webCorePolicy = _websitePolicies->advancedPrivacyProtections();
+     webCorePolicy.set(WebCore::AdvancedPrivacyProtections::BaselineProtections, enabled);
+     webCorePolicy.set(WebCore::AdvancedPrivacyProtections::FingerprintingProtections, enabled);
+@@ -703,6 +708,10 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
+ 
+ - (void)_setNetworkConnectionIntegrityPolicy:(_WKWebsiteNetworkConnectionIntegrityPolicy)advancedPrivacyProtections
+ {
++    RELEASE_LOG(ITPCustomLog, "WKWebpagePreferences_setNetworkConnectionIntegrityPolicy: 0x%{public}llx", 
++        (unsigned long long)advancedPrivacyProtections
++    );
++
+     OptionSet<WebCore::AdvancedPrivacyProtections> webCorePolicy;
+ 
+     if (advancedPrivacyProtections & _WKWebsiteNetworkConnectionIntegrityPolicyEnabled)
+diff --git a/Source/WebKit/WebProcess/WebCoreSupport/WebLocalFrameLoaderClient.cpp b/Source/WebKit/WebProcess/WebCoreSupport/WebLocalFrameLoaderClient.cpp
+index 2a857c89f5..40fdc8bde7 100644
+--- a/Source/WebKit/WebProcess/WebCoreSupport/WebLocalFrameLoaderClient.cpp
++++ b/Source/WebKit/WebProcess/WebCoreSupport/WebLocalFrameLoaderClient.cpp
+@@ -2038,7 +2038,7 @@ void WebLocalFrameLoaderClient::didExceedNetworkUsageThreshold()
+     if (url.isEmpty())
+         return;
+ 
+-    WebLocalFrameLoaderClient_RELEASE_LOG(ResourceMonitoring, "didExceedNetworkUsageThreshold host=%" SENSITIVE_LOG_STRING, url.host().utf8().data());
++    WebLocalFrameLoaderClient_RELEASE_LOG(ResourceMonitoring, "didExceedNetworkUsageThreshold host=%s", url.host().utf8().data());
+ 
+     auto action = [weakFrame = WeakPtr { m_frame->coreLocalFrame() }](bool wasGranted) {
+         RefPtr frame = weakFrame.get();
+diff --git a/Source/WebKit/WebProcess/WebCoreSupport/WebResourceLoadObserver.cpp b/Source/WebKit/WebProcess/WebCoreSupport/WebResourceLoadObserver.cpp
+index f21ad313b1..8c0da66fb6 100644
+--- a/Source/WebKit/WebProcess/WebCoreSupport/WebResourceLoadObserver.cpp
++++ b/Source/WebKit/WebProcess/WebCoreSupport/WebResourceLoadObserver.cpp
+@@ -62,7 +62,12 @@ static bool is3xxRedirect(const ResourceResponse& response)
+ 
+ WebResourceLoadObserver::WebResourceLoadObserver(ResourceLoadStatistics::IsEphemeral isEphemeral)
+     : m_isEphemeral(isEphemeral)
+-    , m_notificationTimer([this] { updateCentralStatisticsStore([] { }); })
++    , m_notificationTimer([this] { 
++
++        RELEASE_LOG(ITPResourceLoading, "WebResourceLoadObserver::WebResourceLoadObserver: Timer fired! Calling updateCentralStatisticsStore");
++
++        updateCentralStatisticsStore([] { }); 
++    })
+ {
+ }
+ 
+@@ -108,13 +113,31 @@ void WebResourceLoadObserver::scheduleNotificationIfNeeded()
+         return;
+     }
+ 
+-    if (!m_notificationTimer.isActive())
++    if (!m_notificationTimer.isActive()) {
+         m_notificationTimer.startOneShot(minimumNotificationInterval);
++
++        RELEASE_LOG(ITPResourceLoading, "WebResourceLoadObserver::scheduleNotificationIfNeeded: Timer started with minimumNotificationInterval=%f seconds", 
++            minimumNotificationInterval.value()
++        );
++    }
+ }
+ 
+ void WebResourceLoadObserver::updateCentralStatisticsStore(CompletionHandler<void()>&& completionHandler)
+ {
+     m_notificationTimer.stop();
++
++    StringBuilder builder;
++    builder.append("Sending "_s, m_resourceStatisticsMap.size(), " updates. Domains: ["_s);
++    bool first = true;
++    for (const auto& domain : m_resourceStatisticsMap.keys()) {
++        if (!first)
++            builder.append(", "_s);
++        builder.append(domain.string());
++        first = false;
++    }
++    builder.append("]"_s);
++    RELEASE_LOG(ITPResourceLoading, "WebResourceLoadObserver::updateCentralStatisticsStore: %s", builder.toString().utf8().data());
++
+     Ref { WebProcess::singleton().ensureNetworkProcessConnection().connection() }->sendWithAsyncReply(Messages::NetworkConnectionToWebProcess::ResourceLoadStatisticsUpdated(takeStatistics()), WTF::move(completionHandler));
+ }
+ 
+@@ -320,6 +343,11 @@ void WebResourceLoadObserver::logSubresourceLoading(const LocalFrame* frame, con
+         targetStatistics.lastSeen = lastSeen;
+         targetStatistics.subresourceUnderTopFrameDomains.add(topFrameDomain);
+ 
++        RELEASE_LOG(ITPResourceLoading, "WebResourceLoadObserver::logSubresourceLoading: [Subresource] Target=%s loaded under TopFrame=%s",
++            targetDomain.string().utf8().data(),
++            topFrameDomain.string().utf8().data()
++        );
++
+         scheduleNotificationIfNeeded();
+     }
+ 
+@@ -327,6 +355,11 @@ void WebResourceLoadObserver::logSubresourceLoading(const LocalFrame* frame, con
+         auto& topFrameStatistics = ensureResourceStatisticsForRegistrableDomain(topFrameDomain);
+         topFrameStatistics.topFrameLoadedThirdPartyScripts.add(targetDomain);
+ 
++        RELEASE_LOG(ITPResourceLoading, "WebResourceLoadObserver::logSubresourceLoading: [Script] TopFrame=%s loaded 3rd-party script from Target=%s",
++            topFrameDomain.string().utf8().data(),
++            targetDomain.string().utf8().data()
++        );
++
+         scheduleNotificationIfNeeded();
+     }
+ 
+@@ -336,6 +369,11 @@ void WebResourceLoadObserver::logSubresourceLoading(const LocalFrame* frame, con
+         auto& targetStatistics = ensureResourceStatisticsForRegistrableDomain(targetDomain);
+         targetStatistics.subresourceUniqueRedirectsFrom.add(redirectedFromDomain);
+ 
++        RELEASE_LOG(ITPResourceLoading, "WebResourceLoadObserver::logSubresourceLoading: [Redirect] %s redirected to %s",
++            redirectedFromDomain.string().utf8().data(),
++            targetDomain.string().utf8().data()
++        );
++
+         scheduleNotificationIfNeeded();
+     }
+ }
+@@ -363,6 +401,11 @@ void WebResourceLoadObserver::logWebSocketLoading(const URL& targetURL, const UR
+     targetStatistics.lastSeen = lastSeen;
+     targetStatistics.subresourceUnderTopFrameDomains.add(topFrameDomain);
+ 
++    RELEASE_LOG(ITPResourceLoading, "WebResourceLoadObserver::logWebSocketLoading: WebSocket loaded. Target=%s, TopFrame=%s",
++        targetDomain.string().utf8().data(),
++        topFrameDomain.string().utf8().data()
++    );
++
+     scheduleNotificationIfNeeded();
+ }
+ 
+@@ -396,6 +439,11 @@ void WebResourceLoadObserver::logUserInteractionWithReducedTimeResolution(const
+         }
+     }
+ 
++    RELEASE_LOG(ITPResourceLoading, "WebResourceLoadObserver::logUserInteraction: Domain=%s recorded interaction. Time=%f",
++        topFrameDomain.string().utf8().data(),
++        newTime.secondsSinceEpoch().value()
++    );
++
+     // We notify right away in case of a user interaction instead of waiting the usual 5 seconds because we want
+     // to update cookie blocking state as quickly as possible.
+     Ref { WebProcess::singleton().ensureNetworkProcessConnection().connection() }->send(Messages::NetworkConnectionToWebProcess::LogUserInteraction(topFrameDomain), 0);
+diff --git a/Source/WebKit/WebProcess/WebPage/Cocoa/WebPageCocoa.mm b/Source/WebKit/WebProcess/WebPage/Cocoa/WebPageCocoa.mm
+index e89215d468..5a72c1f34d 100644
+--- a/Source/WebKit/WebProcess/WebPage/Cocoa/WebPageCocoa.mm
++++ b/Source/WebKit/WebProcess/WebPage/Cocoa/WebPageCocoa.mm
+@@ -52,6 +52,7 @@
+ #import "WebPreferencesKeys.h"
+ #import "WebProcess.h"
+ #import "WebRemoteObjectRegistry.h"
++#include "Logging.h"
+ #import <WebCore/AXObjectCache.h>
+ #import <WebCore/AnimationTimelinesController.h>
+ #import <WebCore/Chrome.h>
+@@ -941,6 +942,14 @@ std::pair<URL, DidFilterLinkDecoration> WebPage::applyLinkDecorationFilteringWit
+         return isLinkDecorationFilteringEnabled(RefPtr { mainFrame->loader().policyDocumentLoader() }.get());
+     }();
+ 
++     // Log both isLinkDecorationFilteringEnabled and hasOptedInToLinkDecorationFiltering
++    RELEASE_LOG(ITPCustomLog, "LinkDecorationFilter: [%s] Trigger=%u. hasOptedInToLinkDecorationFiltering=%d. filterLinkDecorationByDefaultEnabled=%d",
++        url.host().toString().utf8().data(),
++        static_cast<unsigned>(trigger),
++        hasOptedInToLinkDecorationFiltering,
++        m_page->settings().filterLinkDecorationByDefaultEnabled()
++    );
++
+     if (!hasOptedInToLinkDecorationFiltering && !m_page->settings().filterLinkDecorationByDefaultEnabled())
+         return { url, DidFilterLinkDecoration::No };
+ 
+@@ -950,12 +959,26 @@ std::pair<URL, DidFilterLinkDecoration> WebPage::applyLinkDecorationFilteringWit
+     auto sanitizedURL = url;
+     auto removedParameters = WTF::removeQueryParameters(sanitizedURL, [&](auto& key, auto& value) {
+         auto it = m_internals->linkDecorationFilteringData.find(key);
+-        if (it == m_internals->linkDecorationFilteringData.end())
++        if (it == m_internals->linkDecorationFilteringData.end()) {
++
++            RELEASE_LOG(ITPCustomLog, "LinkDecorationFilter: [%s] Param '%s': KEEP (Not in blocklist)",
++                url.host().toString().utf8().data(),
++                key.utf8().data()
++            );
++
+             return false;
++        }
+ 
+         constexpr auto base = 10;
+-        if (value.length() == 3 && !hasOptedInToLinkDecorationFiltering && WTF::parseInteger<uint8_t>(value, base, WTF::ParseIntegerWhitespacePolicy::Disallow))
++        if (value.length() == 3 && !hasOptedInToLinkDecorationFiltering && WTF::parseInteger<uint8_t>(value, base, WTF::ParseIntegerWhitespacePolicy::Disallow)) {
++
++             RELEASE_LOG(ITPCustomLog, "LinkDecorationFilter: [%s] Param '%s': KEEP (3-digit value length)",
++                url.host().toString().utf8().data(),
++                key.utf8().data()
++            );
++
+             return false;
++        }
+ 
+         const auto& conditionals = it->value;
+         bool isEmptyOrFoundDomain = conditionals.domains.isEmpty() || conditionals.domains.contains(RegistrableDomain { url });
+@@ -971,6 +994,14 @@ std::pair<URL, DidFilterLinkDecoration> WebPage::applyLinkDecorationFilteringWit
+         if (trigger == LinkDecorationFilteringTrigger::Navigation)
+             send(Messages::WebPageProxy::DidApplyLinkDecorationFiltering(url, sanitizedURL));
+         auto removedParametersString = makeStringByJoining(removedParameters, ", "_s);
++
++        RELEASE_LOG(ITPCustomLog, "LinkDecorationFilter: [%s] FILTERED known tracking query parameters. Removed=[%s]. Trigger=%u. OriginalURL=%s",
++            url.host().toString().utf8().data(),
++            removedParametersString.utf8().data(),
++            static_cast<unsigned>(trigger),
++            url.string().utf8().data()
++        );
++
+         WEBPAGE_RELEASE_LOG(ResourceLoadStatistics, "Blocked known tracking query parameters: %s", removedParametersString.utf8().data());
+     }
+ 
+@@ -1002,6 +1033,14 @@ URL WebPage::allowedQueryParametersForAdvancedPrivacyProtections(const URL& url)
+         return !allowedParameters.contains(key);
+     });
+ 
++    if (sanitizedURL != url) {
++        RELEASE_LOG(ITPCustomLog, "WebPage::allowedQueryParametersForAdvancedPrivacyProtections: [%s] URL Modified.\nOriginal: %s\nNew:      %s",
++            url.host().toString().utf8().data(),
++            url.string().utf8().data(),
++            sanitizedURL.string().utf8().data()
++        );
++    }
++
+     return sanitizedURL;
+ #else
+     return url;
+diff --git a/Source/WebKit/WebProcess/WebProcess.cpp b/Source/WebKit/WebProcess/WebProcess.cpp
+index ece87205f5..2fce1542e8 100644
+--- a/Source/WebKit/WebProcess/WebProcess.cpp
++++ b/Source/WebKit/WebProcess/WebProcess.cpp
+@@ -2077,6 +2077,9 @@ void WebProcess::clearResourceLoadStatistics()
+ 
+ void WebProcess::flushResourceLoadStatistics()
+ {
++
++    RELEASE_LOG(ITPResourceLoading, "WebProcess::flushResourceLoadStatistics: Flushing all ResourceLoadObservers");
++
+     if (auto* observer = ResourceLoadObserver::singletonIfExists())
+         observer->updateCentralStatisticsStore([] { });
+ }
+@@ -2439,6 +2442,8 @@ void WebProcess::setDomainsWithCrossPageStorageAccess(HashMap<TopFrameDomain, Ve
+ 
+ void WebProcess::sendResourceLoadStatisticsDataImmediately(CompletionHandler<void()>&& completionHandler)
+ {
++    RELEASE_LOG(ITPResourceLoading, "WebProcess::sendResourceLoadStatisticsDataImmediately: Updating immediately");
++
+     ResourceLoadObserver::singleton().updateCentralStatisticsStore(WTF::move(completionHandler));
+ }
+ 
